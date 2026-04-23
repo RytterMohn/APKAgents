@@ -1,0 +1,82 @@
+# 应用配置
+app:
+  name: "APK Multi-Agent Analyzer"
+  version: "1.0.0"
+  debug: false
+
+# 分析配置
+analysis:
+  # 是否并行执行独立任务
+  parallel: true
+  # 最大并行任务数
+  max_workers: 4
+  # 超时时间（秒）
+  timeout: 300
+  # 是否跳过已存在的输出
+  skip_existing: false
+
+# 输出配置
+output:
+  # 输出格式: markdown, html, json, all
+  format: ["markdown", "html", "json"]
+  # 输出目录
+  base_dir: "output"
+  # 是否压缩输出
+  compress: false
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "output/agent.log"
+  max_size: "10MB"
+  backup_count: 5
+
+# API配置 (Claude API)
+api:
+  provider: "anthropic"
+  model: "claude-sonnet-4-6"
+  max_tokens: 4096
+  temperature: 0.7
+  cache: true  # 启用prompt缓存
+
+# Agent配置
+agents:
+  # 是否启用某个Agent
+  enabled:
+    extractor: true
+    decompiler: true
+    analyzer: true
+    scanner: true
+    reporter: true
+    formatter: true
+
+  # Agent特定配置
+  extractor:
+    decode_resources: true
+    decode_sources: false
+
+  decompiler:
+    generate_jar: false
+    generate_smali: false
+
+  analyzer:
+    # 深度分析模式
+    deep_analysis: true
+    # 分析内容
+    check_permissions: true
+    check_components: true
+    check_network: true
+    check_crypto: true
+    check_storage: true
+    check_sensitive_apis: true
+
+  scanner:
+    # 漏洞规则路径
+    rules_dir: "rules"
+    # 使用外部工具
+    use_mobsf: false
+    use_quark: true
+    # 恶意软件检测
+    malware_check: true
+    # 敏感数据检测
+    sensitive_data_check: true

@@ -1,0 +1,45 @@
+# 工具基础目录
+base_dir: "D:/tools"
+
+tools:
+  # apktool 配置
+  apktool:
+    path: "D:/tools/apktool.bat"
+    version_command: "apktool version"
+    version: ""
+
+  # jadx 配置
+  jadx:
+    path: "D:/tools/jadx/bin/jadx.bat"
+    conf: "D:/tools/jadx/conf/jadx.conf"
+    version: ""
+
+  # dex2jar 配置
+  dex2jar:
+    path: "D:/tools/dex2jar/d2j-dex2jar.bat"
+    version: ""
+
+  # aapt 配置 (Android Asset Packaging Tool)
+  aapt:
+    path: "D:/tools/android-sdk/build-tools/33.0.0/aapt.exe"
+    version: ""
+
+  # apksigner 配置
+  apksigner:
+    path: "D:/tools/android-sdk/build-tools/33.0.0/apksigner.bat"
+    version: ""
+
+# Python包
+python_tools:
+  androguard:
+    package: "androguard"
+    version: "3.4.0"
+
+  quark_engine:
+    package: "quark-engine"
+    version: "24.4.1"
+
+  mobsf:
+    package: "mobsf"
+    api_url: "http://localhost:8000"
+    api_key: ""

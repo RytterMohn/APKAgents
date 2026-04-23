@@ -1,0 +1,30 @@
+# 漏洞检测规则
+vulnerability:
+  # 规则文件路径
+  rules_file: "rules/vulnerability_rules.json"
+  # 启用哪些规则（按ID前缀过滤）
+  enabled_rules:
+    - "VULN-*"
+  # 禁用哪些规则
+  disabled_rules: []
+  # 严重程度阈值（低于此级别的漏洞不报告）
+  severity_threshold: "low"
+
+# 恶意软件检测
+malware:
+  # 特征文件
+  indicators_file: "rules/malware_indicators.json"
+  # 是否启用
+  enabled: true
+  # 置信度阈值
+  confidence_threshold: 0.7
+
+# 敏感数据检测
+sensitive_data:
+  # 模式文件
+  patterns_file: "rules/sensitive_data_patterns.json"
+  # 启用哪些模式
+  enabled_patterns:
+    - "SENS-*"
+  # 生成告警
+  alert_on_find: true
