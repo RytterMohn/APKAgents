@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+output/
+hs_err_pid*.log
+
+.env
+.env.*
+
+config/local-run.yaml
+
+.DS_Store
+Thumbs.db

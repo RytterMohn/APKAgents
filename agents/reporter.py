@@ -1,44 +1,68 @@
 """
-Reporter Agent - 报告Agent
-负责汇总分析结果生成报告
+Reporter Agent.
 """
 
-import os
 import json
+import os
 from datetime import datetime
-from typing import List, Dict
-from .base import BaseAgent, AgentContext, AgentResult
+from typing import Dict, List
+
+from utils.llm import LLMError
+
+from .base import AgentContext, AgentResult, BaseAgent
 
 
 class ReporterAgent(BaseAgent):
-    """
-    报告Agent
-    负责:
-    - 汇总所有分析结果
-    - 生成结构化报告
-    - 生成风险评估摘要
-    - 提供修复建议
-    - 支持多种输出格式
-    """
+    """Aggregate analysis results and write the primary report."""
 
     def __init__(self, config: Dict = None):
         super().__init__("Reporter", config)
-        self.template_dir = config.get("template_dir", "templates")
-        self.report_format = config.get("report_format", "markdown")
+        self.template_dir = (config or {}).get("template_dir", "templates")
+        self.report_format = (config or {}).get("report_format", "markdown")
 
     def get_required_inputs(self) -> List[str]:
-        """需要的输入"""
         return ["apk_info", "components", "permissions", "vulnerabilities"]
 
     def get_output_schema(self) -> Dict:
-        """输出schema"""
-        return {
-            "report_data": "dict",
-            "report_path": "str"
+        return {"report_data": "dict", "report_path": "str"}
+
+    def _build_llm_summary(self, context: AgentContext, report_data: Dict) -> Dict:
+        client = self.get_llm_client(context)
+        if not client:
+            return {}
+
+        payload = {
+            "package_name": (report_data.get("apk_info") or {}).get("package_name", ""),
+            "permissions": report_data.get("permissions", [])[:20],
+            "risk_level": report_data.get("risk_level"),
+            "risk_score": report_data.get("risk_score"),
+            "components": {
+                "activities": len((report_data.get("components") or {}).get("activities", [])),
+                "exported": ((report_data.get("components") or {}).get("exported_counts") or {}),
+            },
+            "vulnerabilities": report_data.get("vulnerabilities", [])[:12],
+            "sensitive_data": report_data.get("sensitive_data", [])[:10],
+            "malware_indicators": report_data.get("malware_indicators", [])[:10],
+            "llm_triage": context.llm_triage or {},
         }
+        system_prompt = (
+            "You are a senior Android application security reviewer. "
+            "Return strict JSON only. "
+            "Summarize the most important issues, likely false-positive caveats, and practical remediation order."
+        )
+        user_prompt = (
+            "Create a concise executive summary for this APK scan. "
+            "Return JSON with keys: executive_summary, key_findings, recommendations, residual_risks.\n"
+            f"{json.dumps(payload, ensure_ascii=False)}"
+        )
+
+        try:
+            return client.generate_json(system_prompt, user_prompt)
+        except LLMError as exc:
+            context.add_warning(f"LLM summary failed: {exc}")
+            return {}
 
     def _aggregate_data(self, context: AgentContext) -> Dict:
-        """汇总所有分析数据"""
         apk_info = getattr(context, "apk_info", {}) or {}
         components = getattr(context, "components", {}) or {}
         permissions = getattr(context, "permissions", []) or []
@@ -51,7 +75,7 @@ class ReporterAgent(BaseAgent):
         risk_level = getattr(context, "risk_level", "unknown") or "unknown"
         risk_score = getattr(context, "risk_score", 0) or 0
 
-        return {
+        report_data = {
             "apk_info": apk_info,
             "components": components,
             "permissions": permissions,
@@ -67,20 +91,16 @@ class ReporterAgent(BaseAgent):
             "risk_score": risk_score,
             "analysis_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "warnings": getattr(context, "warnings", []),
-            "errors": getattr(context, "errors", [])
+            "errors": getattr(context, "errors", []),
+            "llm_triage": context.llm_triage or {},
         }
-
-    def _generate_report(self, data: Dict) -> str:
-        """生成报告内容"""
-        if self.report_format == "json":
-            return self._generate_json_report(data)
-        elif self.report_format == "html":
-            return self._generate_html_report(data)
-        else:
-            return self._generate_markdown_report(data)
+        llm_summary = self._build_llm_summary(context, report_data)
+        if llm_summary:
+            report_data["llm_summary"] = llm_summary
+            context.llm_summary = llm_summary
+        return report_data
 
     def _generate_markdown_report(self, data: Dict) -> str:
-        """生成Markdown格式报告"""
         apk_info = data.get("apk_info", {})
         components = data.get("components", {})
         permissions = data.get("permissions", [])
@@ -90,347 +110,235 @@ class ReporterAgent(BaseAgent):
         risk_level = data.get("risk_level", "unknown")
         risk_score = data.get("risk_score", 0)
         analysis_date = data.get("analysis_date", "")
+        exported = components.get("exported_counts", {}) or {}
+        llm_summary = data.get("llm_summary", {}) or {}
 
-        report = f"""# APK安全分析报告
+        lines = [
+            "# APK Analysis Report",
+            "",
+            "## Basic Info",
+            "",
+            f"- Package: `{apk_info.get('package_name', 'N/A')}`",
+            f"- Version: `{apk_info.get('version_name', 'N/A')}` (`{apk_info.get('version_code', 'N/A')}`)",
+            f"- Min SDK: `{apk_info.get('min_sdk', 'N/A')}`",
+            f"- Target SDK: `{apk_info.get('target_sdk', 'N/A')}`",
+            f"- Analysis Date: `{analysis_date}`",
+            "",
+            "## Risk Summary",
+            "",
+            f"- Risk Level: `{risk_level}`",
+            f"- Risk Score: `{risk_score}` / 100",
+            f"- Vulnerabilities: `{len(vulnerabilities)}`",
+            f"- Malware Indicators: `{len(malware_indicators)}`",
+            f"- Sensitive Data Findings: `{len(sensitive_data)}`",
+        ]
 
-## 基本信息
+        if llm_summary:
+            lines.extend(
+                [
+                    "",
+                    "## LLM Executive Summary",
+                    "",
+                    llm_summary.get("executive_summary", ""),
+                    "",
+                ]
+            )
+            key_findings = llm_summary.get("key_findings", []) or []
+            if key_findings:
+                lines.append("### Key Findings")
+                lines.extend([f"- {item}" for item in key_findings])
+                lines.append("")
 
-| 属性 | 值 |
-|------|-----|
-| 包名 | {apk_info.get("package_name", "N/A")} |
-| 版本 | {apk_info.get("version_name", "N/A")} ({apk_info.get("version_code", "N/A")}) |
-| 最低SDK | {apk_info.get("min_sdk", "N/A")} |
-| 目标SDK | {apk_info.get("target_sdk", "N/A")} |
-| 分析时间 | {analysis_date} |
-
-## 风险评估
-
-- **总体风险等级**: {risk_level.upper()}
-- **风险评分**: {risk_score}/100
-- **漏洞数量**: {len(vulnerabilities)}
-- **恶意软件特征**: {len(malware_indicators)}
-- **敏感数据泄露**: {len(sensitive_data)}
-
----
-
-## 权限分析
-
-共声明 **{len(permissions)}** 项权限：
-
-"""
-
+        lines.extend(["## Permissions", ""])
         if permissions:
-            report += "```\n"
-            for perm in permissions[:50]:
-                report += f"- {perm}\n"
+            lines.extend([f"- `{perm}`" for perm in permissions[:50]])
             if len(permissions) > 50:
-                report += f"- ... 还有 {len(permissions) - 50} 项权限\n"
-            report += "```\n"
+                lines.append(f"- ... and {len(permissions) - 50} more")
+        else:
+            lines.append("- None detected")
 
-        report += """
-
-## 组件分析
-
-"""
-
-        exported = components.get("exported_counts", {})
-        report += f"- **Activity**: {len(components.get("activities", []))} 个 ({exported.get("activities", 0)} 个exported)\n"
-        report += f"- **Service**: {len(components.get("services", []))} 个 ({exported.get("services", 0)} 个exported)\n"
-        report += f"- **BroadcastReceiver**: {len(components.get("receivers", []))} 个 ({exported.get("receivers", 0)} 个exported)\n"
-        report += f"- **ContentProvider**: {len(components.get("providers", []))} 个 ({exported.get("providers", 0)} 个exported)\n"
-
-        report += """
-
-## 安全问题
-
-"""
+        lines.extend(
+            [
+                "",
+                "## Components",
+                "",
+                f"- Activities: `{len(components.get('activities', []))}` (`{exported.get('activities', 0)}` exported)",
+                f"- Services: `{len(components.get('services', []))}` (`{exported.get('services', 0)}` exported)",
+                f"- Receivers: `{len(components.get('receivers', []))}` (`{exported.get('receivers', 0)}` exported)",
+                f"- Providers: `{len(components.get('providers', []))}` (`{exported.get('providers', 0)}` exported)",
+                "",
+                "## Findings",
+                "",
+            ]
+        )
 
         if vulnerabilities:
-            severity_colors = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
-            for vuln in vulnerabilities:
-                severity = vuln.get("severity", "medium")
-                icon = severity_colors.get(severity, "⚪")
-                report += f"""### {icon} {vuln.get("name", "Unknown")}
-
-- **ID**: {vuln.get("id", "N/A")}
-- **严重程度**: {severity.upper()}
-- **CWE**: {vuln.get("cwe", "N/A")}
-- **描述**: {vuln.get("description", "N/A")}
-- **位置**: `{vuln.get("location", "N/A")}`
-- **修复建议**: {vuln.get("remediation", "N/A")}
-
-"""
+            for vuln in vulnerabilities[:20]:
+                lines.extend(
+                    [
+                        f"### {vuln.get('name', 'Unknown')}",
+                        "",
+                        f"- ID: `{vuln.get('id', 'N/A')}`",
+                        f"- Severity: `{vuln.get('severity', 'unknown')}`",
+                        f"- CWE: `{vuln.get('cwe', 'N/A')}`",
+                        f"- CVSS: `{vuln.get('cvss', 'N/A')}`",
+                        f"- Location: `{vuln.get('location', 'N/A')}`",
+                        f"- Description: {vuln.get('description', 'N/A')}",
+                        f"- Remediation: {vuln.get('remediation', 'N/A')}",
+                        "",
+                    ]
+                )
+            if len(vulnerabilities) > 20:
+                lines.append(f"- ... {len(vulnerabilities) - 20} additional findings omitted from markdown summary")
         else:
-            report += "未发现安全漏洞。\n"
+            lines.append("- No vulnerabilities detected")
 
         if malware_indicators:
-            report += """
-
-## 恶意软件特征
-
-"""
-            for malware in malware_indicators:
-                report += f"""- **{malware.get("name", "Unknown")}** ({malware.get("severity", "").upper()})
-  - 类别: {malware.get("category", "N/A")}
-  - 置信度: {malware.get("confidence", "N/A")}
-  - 描述: {malware.get("description", "N/A")}
-
-"""
+            lines.extend(["", "## Malware Indicators", ""])
+            for item in malware_indicators:
+                lines.append(
+                    f"- `{item.get('name', 'Unknown')}` ({item.get('severity', 'unknown')}): {item.get('description', '')}"
+                )
 
         if sensitive_data:
-            report += """
+            lines.extend(["", "## Sensitive Data", ""])
+            for item in sensitive_data:
+                lines.append(
+                    f"- `{item.get('name', 'Unknown')}` at `{item.get('location', 'N/A')}`: `{item.get('matched', '')[:80]}`"
+                )
 
-## 敏感数据泄露
+        lines.extend(["", "## Recommendations", ""])
+        recommendations = llm_summary.get("recommendations") or self.get_recommendations(vulnerabilities)
+        for index, rec in enumerate(recommendations, 1):
+            lines.append(f"{index}. {rec}")
 
-"""
-            for data_item in sensitive_data:
-                report += f"""- **{data_item.get("name", "Unknown")}** ({data_item.get("severity", "").upper()})
-  - 类型: {data_item.get("type", "N/A")}
-  - 位置: `{data_item.get("location", "N/A")}`
-  - 匹配内容: `{data_item.get("matched", "")[:50]}...`
+        residual_risks = llm_summary.get("residual_risks", []) or []
+        if residual_risks:
+            lines.extend(["", "## Residual Risks", ""])
+            lines.extend([f"- {item}" for item in residual_risks])
 
-"""
-
-        report += f"""
-
----
-
-## 执行摘要
-
-{self.get_executive_summary(data)}
-
-## 修复建议
-
-"""
-        recommendations = self.get_recommendations(vulnerabilities)
-        for i, rec in enumerate(recommendations, 1):
-            report += f"{i}. {rec}\n"
-
-        report += """
-
----
-
-*本报告由APKAgents自动生成*
-"""
-        return report
+        lines.extend(["", "---", "", "*Generated by APKAgents*"])
+        return "\n".join(lines)
 
     def _generate_json_report(self, data: Dict) -> str:
-        """生成JSON格式报告"""
         return json.dumps(data, indent=2, ensure_ascii=False)
 
     def _generate_html_report(self, data: Dict) -> str:
-        """生成HTML格式报告"""
         apk_info = data.get("apk_info", {})
-        risk_level = data.get("risk_level", "unknown")
         vulnerabilities = data.get("vulnerabilities", [])
+        risk_level = data.get("risk_level", "unknown")
+        risk_score = data.get("risk_score", 0)
+        llm_summary = data.get("llm_summary", {}) or {}
 
-        html = f"""<!DOCTYPE html>
-<html lang="zh-CN">
+        items = []
+        for vuln in vulnerabilities[:20]:
+            items.append(
+                "<div class='finding'>"
+                f"<h3>{vuln.get('name', 'Unknown')}</h3>"
+                f"<p><strong>Severity:</strong> {vuln.get('severity', 'unknown')}</p>"
+                f"<p><strong>Location:</strong> <code>{vuln.get('location', 'N/A')}</code></p>"
+                f"<p>{vuln.get('description', '')}</p>"
+                "</div>"
+            )
+
+        if not items:
+            items.append("<p>No vulnerabilities detected.</p>")
+
+        llm_block = ""
+        if llm_summary:
+            llm_block = (
+                "<section><h2>LLM Executive Summary</h2>"
+                f"<p>{llm_summary.get('executive_summary', '')}</p>"
+                "</section>"
+            )
+
+        return f"""<!DOCTYPE html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>APK安全分析报告 - {apk_info.get("package_name", "N/A")}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
-        .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-        h1 {{ color: #333; border-bottom: 3px solid #2196F3; padding-bottom: 10px; }}
-        h2 {{ color: #555; margin-top: 30px; }}
-        .info-table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-        .info-table td {{ padding: 10px; border: 1px solid #ddd; }}
-        .info-table td:first-child {{ font-weight: bold; background: #f9f9f9; width: 200px; }}
-        .risk-critical {{ background: #d32f2f; color: white; padding: 5px 15px; border-radius: 3px; }}
-        .risk-high {{ background: #f57c00; color: white; padding: 5px 15px; border-radius: 3px; }}
-        .risk-medium {{ background: #fbc02d; color: #333; padding: 5px 15px; border-radius: 3px; }}
-        .risk-low {{ background: #4caf50; color: white; padding: 5px 15px; border-radius: 3px; }}
-        .vuln-item {{ border-left: 4px solid #f57c00; padding: 15px; margin: 10px 0; background: #fff8e1; }}
-        .vuln-critical {{ border-left-color: #d32f2f; background: #ffebee; }}
-        .vuln-high {{ border-left-color: #f57c00; background: #fff8e1; }}
-        .vuln-medium {{ border-left-color: #fbc02d; background: #fffde7; }}
-        .vuln-low {{ border-left-color: #4caf50; background: #e8f5e9; }}
-        code {{ background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }}
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APK Analysis Report</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 32px; background: #f7f7f7; color: #222; }}
+    main {{ max-width: 960px; margin: 0 auto; background: #fff; padding: 24px; border-radius: 8px; }}
+    .badge {{ display: inline-block; padding: 4px 10px; border-radius: 999px; background: #eee; }}
+    .finding {{ border-left: 4px solid #d97706; padding: 12px 16px; margin: 12px 0; background: #fffbeb; }}
+    code {{ background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }}
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>APK安全分析报告</h1>
-
-        <h2>基本信息</h2>
-        <table class="info-table">
-            <tr><td>包名</td><td>{apk_info.get("package_name", "N/A")}</td></tr>
-            <tr><td>版本</td><td>{apk_info.get("version_name", "N/A")} ({apk_info.get("version_code", "N/A")})</td></tr>
-            <tr><td>最低SDK</td><td>{apk_info.get("min_sdk", "N/A")}</td></tr>
-            <tr><td>目标SDK</td><td>{apk_info.get("target_sdk", "N/A")}</td></tr>
-            <tr><td>分析时间</td><td>{data.get("analysis_date", "")}</td></tr>
-        </table>
-
-        <h2>风险评估</h2>
-        <p>风险等级: <span class="risk-{risk_level}">{risk_level.upper()}</span></p>
-        <p>风险评分: {data.get("risk_score", 0)}/100</p>
-        <p>漏洞数量: {len(vulnerabilities)}</p>
-
-        <h2>安全问题</h2>
-"""
-        for vuln in vulnerabilities:
-            severity = vuln.get("severity", "medium")
-            html += f"""        <div class="vuln-item vuln-{severity}">
-            <strong>{vuln.get("name", "Unknown")}</strong> [{vuln.get("severity", "").upper()}]
-            <p>{vuln.get("description", "")}</p>
-            <p>位置: <code>{vuln.get("location", "")}</code></p>
-            <p>修复建议: {vuln.get("remediation", "")}</p>
-        </div>
-"""
-
-        html += """
-        <h2>修复建议</h2>
-        <ol>
-"""
-        for rec in self.get_recommendations(vulnerabilities):
-            html += f"            <li>{rec}</li>\n"
-
-        html += """        </ol>
-        <p><em>本报告由APKAgents自动生成</em></p>
-    </div>
+  <main>
+    <h1>APK Analysis Report</h1>
+    <p>Package: <code>{apk_info.get('package_name', 'N/A')}</code></p>
+    <p>Version: <code>{apk_info.get('version_name', 'N/A')}</code> (<code>{apk_info.get('version_code', 'N/A')}</code>)</p>
+    <p>Risk: <span class="badge">{risk_level}</span> Score: <strong>{risk_score}</strong>/100</p>
+    {llm_block}
+    <h2>Findings</h2>
+    {''.join(items)}
+  </main>
 </body>
 </html>"""
-        return html
+
+    def _generate_report(self, data: Dict) -> str:
+        if self.report_format == "json":
+            return self._generate_json_report(data)
+        if self.report_format == "html":
+            return self._generate_html_report(data)
+        return self._generate_markdown_report(data)
 
     def _save_report(self, context: AgentContext, content: str) -> str:
-        """保存报告文件"""
-        output_dir = context.output_dir
-        os.makedirs(output_dir, exist_ok=True)
-
-        apk_info = getattr(context, "apk_info", {}) or {}
-        package_name = apk_info.get("package_name", "app")
-
-        if self.report_format == "json":
-            filename = f"{package_name}_report.json"
-        elif self.report_format == "html":
-            filename = f"{package_name}_report.html"
-        else:
-            filename = f"{package_name}_report.md"
-
-        report_path = os.path.join(output_dir, filename)
-
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
+        os.makedirs(context.output_dir, exist_ok=True)
+        package_name = (getattr(context, "apk_info", {}) or {}).get("package_name", "app")
+        extension = {"json": "json", "html": "html"}.get(self.report_format, "md")
+        report_path = os.path.join(context.output_dir, f"{package_name}_report.{extension}")
+        with open(report_path, "w", encoding="utf-8") as handle:
+            handle.write(content)
         return report_path
 
-    def get_executive_summary(self, data: Dict) -> str:
-        """生成执行摘要"""
-        risk_level = data.get("risk_level", "unknown")
-        vuln_count = data.get("vulnerability_count", 0)
-        malware_count = len(data.get("malware_indicators", []))
-        sensitive_count = data.get("sensitive_data_count", 0)
-        apk_info = data.get("apk_info", {})
-        package_name = apk_info.get("package_name", "Unknown")
-
-        summary_parts = []
-
-        if risk_level == "critical":
-            summary_parts.append(f"应用 {package_name} 存在严重安全风险，建议立即修复。")
-        elif risk_level == "high":
-            summary_parts.append(f"应用 {package_name} 存在较高安全风险，建议尽快修复。")
-        elif risk_level == "medium":
-            summary_parts.append(f"应用 {package_name} 存在中等安全风险，建议关注并修复。")
-        elif risk_level == "low":
-            summary_parts.append(f"应用 {package_name} 安全状况良好，仅有少量低危问题。")
-        else:
-            summary_parts.append(f"应用 {package_name} 分析完成，未发现明显安全问题。")
-
-        if vuln_count > 0:
-            summary_parts.append(f"发现 {vuln_count} 个安全漏洞。")
-
-        if malware_count > 0:
-            summary_parts.append(f"检测到 {malware_count} 个恶意软件特征。")
-
-        if sensitive_count > 0:
-            summary_parts.append(f"发现 {sensitive_count} 处敏感数据泄露风险。")
-
-        return " ".join(summary_parts)
-
     def get_recommendations(self, vulnerabilities: List[Dict]) -> List[str]:
-        """生成修复建议"""
-        recommendations = []
-
         if not vulnerabilities:
-            recommendations.append("保持当前安全实践，定期更新依赖库版本。")
-            recommendations.append("继续进行安全代码审计，确保新功能符合安全规范。")
-            return recommendations
+            return [
+                "Keep dependencies up to date and rerun static analysis regularly.",
+                "Review exported components and permission usage before release.",
+            ]
 
-        seen_categories = set()
-
+        recommendations = []
+        seen = set()
+        mapping = {
+            "VULN-001": "Review WebView configuration and disable unnecessary JavaScript exposure.",
+            "VULN-002": "Restrict broadcast and intent flows with explicit permissions.",
+            "VULN-003": "Use SecureRandom instead of predictable random sources.",
+            "VULN-004": "Fix certificate validation and avoid insecure TrustManager implementations.",
+            "VULN-005": "Disable debug flags in release builds.",
+            "VULN-006": "Review addJavascriptInterface exposure and reduce reachable methods.",
+            "VULN-007": "Use private file modes and tighten filesystem permissions.",
+            "VULN-008": "Remove sensitive data from logs in production builds.",
+            "VULN-009": "Avoid loading code from untrusted paths at runtime.",
+            "VULN-010": "Use parameterized queries to prevent SQL injection.",
+        }
         for vuln in vulnerabilities:
-            vuln_id = vuln.get("id", "")
-            name = vuln.get("name", "")
-
-            if vuln_id == "VULN-001" and "webview" not in seen_categories:
-                recommendations.append("审查WebView配置，禁用不必要的JavaScript，启用白名单验证。")
-                seen_categories.add("webview")
-
-            elif vuln_id == "VULN-002" and "intent" not in seen_categories:
-                recommendations.append("使用LocalBroadcastManager或带权限的广播发送敏感数据。")
-                seen_categories.add("intent")
-
-            elif vuln_id == "VULN-003" and "random" not in seen_categories:
-                recommendations.append("使用java.security.SecureRandom替代java.util.Random。")
-                seen_categories.add("random")
-
-            elif vuln_id == "VULN-004" and "ssl" not in seen_categories:
-                recommendations.append("修复SSL证书验证问题，使用正确的TrustManager实现。")
-                seen_categories.add("ssl")
-
-            elif vuln_id == "VULN-005" and "debug" not in seen_categories:
-                recommendations.append("发布版本关闭Android:debuggable标志。")
-                seen_categories.add("debug")
-
-            elif vuln_id == "VULN-006" and "jsinterface" not in seen_categories:
-                recommendations.append("审查addJavascriptInterface使用，限制暴露的接口。")
-                seen_categories.add("jsinterface")
-
-            elif vuln_id == "VULN-007" and "fileperm" not in seen_categories:
-                recommendations.append("使用MODE_PRIVATE或适当的文件权限，避免全局可读/可写。")
-                seen_categories.add("fileperm")
-
-            elif vuln_id == "VULN-008" and "log" not in seen_categories:
-                recommendations.append("发布版本禁用日志输出或使用代码混淆。")
-                seen_categories.add("log")
-
-            elif vuln_id == "VULN-009" and "dexclass" not in seen_categories:
-                recommendations.append("避免从不可信位置动态加载代码。")
-                seen_categories.add("dexclass")
-
-            elif vuln_id == "VULN-010" and "sql" not in seen_categories:
-                recommendations.append("使用参数化查询替代字符串拼接，防止SQL注入。")
-                seen_categories.add("sql")
-
-        if len(recommendations) < 3:
-            recommendations.append("定期进行安全评估和代码审计。")
-            recommendations.append("保持依赖库更新到最新安全版本。")
-
+            vuln_id = vuln.get("id")
+            if vuln_id in mapping and vuln_id not in seen:
+                recommendations.append(mapping[vuln_id])
+                seen.add(vuln_id)
+        if len(recommendations) < 2:
+            recommendations.append("Prioritize high-severity findings first and verify fixes with another scan.")
         return recommendations
 
     def execute(self, context: AgentContext) -> AgentResult:
-        """生成报告"""
         self.log_info(context, "Generating report")
 
         try:
             report_data = self._aggregate_data(context)
             report_content = self._generate_report(report_data)
             report_path = self._save_report(context, report_content)
-
             context.report_data = report_data
             context.report_path = report_path
-
             return AgentResult.success_result(
                 message="Report generated",
-                data={
-                    "report_data": report_data,
-                    "report_path": report_path
-                },
-                artifacts=[report_path]
+                data={"report_data": report_data, "report_path": report_path},
+                artifacts=[report_path],
             )
-
-        except Exception as e:
-            self.log_error(context, f"Report generation failed: {str(e)}")
-            return AgentResult.error_result(f"Report generation failed: {str(e)}")
+        except Exception as exc:
+            self.log_error(context, f"Report generation failed: {exc}")
+            return AgentResult.error_result(f"Report generation failed: {exc}")

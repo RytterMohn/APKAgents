@@ -1,90 +1,71 @@
 """
-Decompiler Agent - 反编译Agent
-负责将DEX文件反编译为可读源码
+Decompiler Agent.
 """
 
 import os
-import subprocess
 import re
-from typing import List, Dict
-from .base import BaseAgent, AgentContext, AgentResult
+import subprocess
+from typing import Dict, List
+
+from .base import AgentContext, AgentResult, BaseAgent
 
 
 class DecompilerAgent(BaseAgent):
-    """
-    反编译Agent
-    负责:
-    - 将DEX文件转换为JAR
-    - 使用jadx反编译为Java源码
-    - 提取Smali代码
-    - 识别代码结构和类继承关系
-    """
+    """Decompile an APK or DEX input into source artifacts."""
 
     def __init__(self, config: Dict = None):
         super().__init__("Decompiler", config)
+        config = config or {}
         self.jadx_path = config.get("jadx_path", "jadx")
         self.dex2jar_path = config.get("dex2jar_path", "d2j-dex2jar")
         self.baksmali_path = config.get("baksmali_path", "baksmali")
 
     def get_required_inputs(self) -> List[str]:
-        """需要的输入"""
-        return ["dex_files", "output_dir"]
+        return ["output_dir"]
 
     def get_output_schema(self) -> Dict:
-        """输出schema"""
         return {
             "decompiled_dir": "str",
             "java_sources": "list",
             "smali_files": "list",
-            "jar_files": "list"
+            "jar_files": "list",
         }
 
     def execute(self, context: AgentContext) -> AgentResult:
-        """
-        执行反编译
-
-        使用工具:
-        - jadx: DEX反编译为Java
-        - dex2jar: DEX转JAR
-        - baksmali: DEX转Smali
-        """
         self.log_info(context, "Starting decompilation")
 
-        if not context.dex_files:
-            return AgentResult.error_result("No DEX files to decompile")
+        inputs = list(context.dex_files or [])
+        if not inputs and context.apk_path:
+            inputs = [context.apk_path]
+        if not inputs:
+            return AgentResult.error_result("No APK or DEX files to decompile")
 
-        # 创建输出目录
         apk_name = os.path.splitext(os.path.basename(context.apk_path))[0]
         decompiled_dir = os.path.join(context.output_dir, f"{apk_name}_decompiled")
         os.makedirs(decompiled_dir, exist_ok=True)
 
-        java_sources = []
-        smali_files = []
-        jar_files = []
+        java_sources: List[str] = []
+        smali_files: List[str] = []
+        jar_files: List[str] = []
 
         try:
-            # 对每个DEX文件进行反编译
-            for dex_file in context.dex_files:
-                self.log_info(context, f"Decompiling: {dex_file}")
+            for input_file in inputs:
+                self.log_info(context, f"Decompiling: {input_file}")
 
-                # 1. 使用jadx反编译为Java
-                java_dir = self._decompile_with_jadx(dex_file, decompiled_dir)
+                java_dir = self._decompile_with_jadx(input_file, decompiled_dir)
                 if java_dir:
                     java_sources.append(java_dir)
 
-                # 2. 转换为JAR（可选）
                 if self.config.get("generate_jar", False):
-                    jar_file = self._dex2jar(dex_file, decompiled_dir)
+                    jar_file = self._dex2jar(input_file, decompiled_dir)
                     if jar_file:
                         jar_files.append(jar_file)
 
-                # 3. 转换为Smali（可选）
                 if self.config.get("generate_smali", False):
-                    smali_dir = self._dex2smali(dex_file, decompiled_dir)
+                    smali_dir = self._dex2smali(input_file, decompiled_dir)
                     if smali_dir:
                         smali_files.append(smali_dir)
 
-            # 更新context
             context.decompiled_dir = decompiled_dir
             context.java_sources = java_sources
             context.smali_files = smali_files
@@ -96,50 +77,54 @@ class DecompilerAgent(BaseAgent):
                     "decompiled_dir": decompiled_dir,
                     "java_sources": java_sources,
                     "smali_files": smali_files,
-                    "jar_files": jar_files
+                    "jar_files": jar_files,
                 },
-                artifacts=[decompiled_dir]
+                artifacts=[decompiled_dir],
             )
+        except Exception as exc:
+            self.log_error(context, f"Decompilation failed: {exc}")
+            return AgentResult.error_result(f"Decompilation failed: {exc}")
 
-        except Exception as e:
-            self.log_error(context, f"Decompilation failed: {str(e)}")
-            return AgentResult.error_result(f"Decompilation failed: {str(e)}")
-
-    def _decompile_with_jadx(self, dex_file: str, output_dir: str) -> str:
-        """使用jadx反编译DEX"""
-        dex_name = os.path.splitext(os.path.basename(dex_file))[0]
-        java_dir = os.path.join(output_dir, f"{dex_name}_java")
+    def _decompile_with_jadx(self, input_file: str, output_dir: str) -> str:
+        base_name = os.path.splitext(os.path.basename(input_file))[0]
+        java_dir = os.path.join(output_dir, f"{base_name}_java")
         os.makedirs(java_dir, exist_ok=True)
+        env = os.environ.copy()
+        env.setdefault("JADX_OPTS", "-Xmx512M -XX:MaxRAMPercentage=20.0")
 
         try:
             result = subprocess.run(
-                [self.jadx_path, "-d", java_dir, dex_file, "--no-res"],
+                [self.jadx_path, "-d", java_dir, input_file, "--no-res"],
                 capture_output=True,
                 text=True,
-                timeout=600
+                timeout=600,
+                env=env,
             )
             if result.returncode != 0:
-                self.log_warning(None, f"jadx failed: {result.stderr}")
+                has_output = any(True for _, _, files in os.walk(java_dir) if files)
+                if has_output:
+                    self.log_warning(None, f"jadx returned non-zero but produced output: {result.stderr.strip()}")
+                    return java_dir
+                self.log_warning(None, f"jadx failed: {result.stderr.strip()}")
                 return ""
             return java_dir
         except subprocess.TimeoutExpired:
             self.log_warning(None, "jadx timeout")
             return ""
-        except Exception as e:
-            self.log_warning(None, f"jadx error: {str(e)}")
+        except Exception as exc:
+            self.log_warning(None, f"jadx error: {exc}")
             return ""
 
-    def _dex2jar(self, dex_file: str, output_dir: str) -> str:
-        """DEX转JAR"""
-        dex_name = os.path.splitext(os.path.basename(dex_file))[0]
-        jar_file = os.path.join(output_dir, f"{dex_name}.jar")
+    def _dex2jar(self, input_file: str, output_dir: str) -> str:
+        base_name = os.path.splitext(os.path.basename(input_file))[0]
+        jar_file = os.path.join(output_dir, f"{base_name}.jar")
 
         try:
             result = subprocess.run(
-                [self.dex2jar_path, "-o", jar_file, dex_file],
+                [self.dex2jar_path, "-o", jar_file, input_file],
                 capture_output=True,
                 text=True,
-                timeout=120
+                timeout=120,
             )
             if result.returncode != 0:
                 self.log_warning(None, f"dex2jar failed: {result.stderr}")
@@ -148,22 +133,21 @@ class DecompilerAgent(BaseAgent):
         except subprocess.TimeoutExpired:
             self.log_warning(None, "dex2jar timeout")
             return ""
-        except Exception as e:
-            self.log_warning(None, f"dex2jar error: {str(e)}")
+        except Exception as exc:
+            self.log_warning(None, f"dex2jar error: {exc}")
             return ""
 
-    def _dex2smali(self, dex_file: str, output_dir: str) -> str:
-        """DEX转Smali"""
-        dex_name = os.path.splitext(os.path.basename(dex_file))[0]
-        smali_dir = os.path.join(output_dir, f"{dex_name}_smali")
+    def _dex2smali(self, input_file: str, output_dir: str) -> str:
+        base_name = os.path.splitext(os.path.basename(input_file))[0]
+        smali_dir = os.path.join(output_dir, f"{base_name}_smali")
         os.makedirs(smali_dir, exist_ok=True)
 
         try:
             result = subprocess.run(
-                [self.baksmali_path, "d", "-o", smali_dir, dex_file],
+                [self.baksmali_path, "d", "-o", smali_dir, input_file],
                 capture_output=True,
                 text=True,
-                timeout=120
+                timeout=120,
             )
             if result.returncode != 0:
                 self.log_warning(None, f"baksmali failed: {result.stderr}")
@@ -172,55 +156,49 @@ class DecompilerAgent(BaseAgent):
         except subprocess.TimeoutExpired:
             self.log_warning(None, "baksmali timeout")
             return ""
-        except Exception as e:
-            self.log_warning(None, f"baksmali error: {str(e)}")
+        except Exception as exc:
+            self.log_warning(None, f"baksmali error: {exc}")
             return ""
 
     def get_class_tree(self, java_sources: List[str]) -> Dict:
-        """获取类继承结构树"""
         class_tree = {}
 
         for source_dir in java_sources:
             if not os.path.exists(source_dir):
                 continue
 
-            for root, dirs, files in os.walk(source_dir):
-                for f in files:
-                    if not f.endswith(".java"):
+            for root, _, files in os.walk(source_dir):
+                for filename in files:
+                    if not filename.endswith(".java"):
                         continue
 
-                    java_file = os.path.join(root, f)
+                    java_file = os.path.join(root, filename)
                     try:
-                        with open(java_file, "r", encoding="utf-8", errors="ignore") as fp:
-                            content = fp.read()
+                        with open(java_file, "r", encoding="utf-8", errors="ignore") as handle:
+                            content = handle.read()
 
-                        class_pattern = r"(?:public\s+|private\s+|protected\s+)?(class|interface|enum)\s+(\w+)\s*(?:extends\s+(\w+))?\s*(?:implements\s+([\w,\s]+))?"
-                        matches = re.finditer(class_pattern, content)
-
-                        for match in matches:
-                            class_type = match.group(1)
+                        pattern = (
+                            r"(?:public\s+|private\s+|protected\s+)?"
+                            r"(class|interface|enum)\s+(\w+)\s*"
+                            r"(?:extends\s+(\w+))?\s*"
+                            r"(?:implements\s+([\w,\s]+))?"
+                        )
+                        for match in re.finditer(pattern, content):
                             class_name = match.group(2)
-                            parent = match.group(3)
                             interfaces = match.group(4)
-
-                            interface_list = []
-                            if interfaces:
-                                interface_list = [i.strip() for i in interfaces.split(",")]
-
                             class_tree[class_name] = {
-                                "type": class_type,
-                                "parent": parent,
-                                "interfaces": interface_list,
+                                "type": match.group(1),
+                                "parent": match.group(3),
+                                "interfaces": [i.strip() for i in interfaces.split(",")] if interfaces else [],
                                 "children": [],
-                                "file": os.path.relpath(java_file, source_dir)
+                                "file": os.path.relpath(java_file, source_dir),
                             }
                     except Exception:
                         continue
 
         for class_name, info in class_tree.items():
             parent = info.get("parent")
-            if parent and parent in class_tree:
-                if class_name not in class_tree[parent]["children"]:
-                    class_tree[parent]["children"].append(class_name)
+            if parent and parent in class_tree and class_name not in class_tree[parent]["children"]:
+                class_tree[parent]["children"].append(class_name)
 
         return class_tree

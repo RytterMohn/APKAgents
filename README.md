@@ -1,219 +1,166 @@
-# APK Multi-Agent Analyzer
+# APKAgents
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-blue?style=flat-square" alt="Python">
-  <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License">
-  <img src="https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square" alt="Status">
-</p>
+一个面向 Android APK 的多 Agent 安全分析工具。  
+它把解包、反编译、静态规则扫描、恶意行为检测，以及可选的 LLM 复核与总结串成一条自动化分析流水线，输出适合阅读和二次处理的安全报告。
 
-APK多Agent自动分析系统，基于LangChain + CrewAI架构实现自动化APK安全分析、漏洞扫描和报告生成。
+## 项目特点
 
-## ✨ 特性
+- 多 Agent 协作
+  将 APK 分析过程拆分为解包、反编译、分析、扫描、报告、格式化等多个职责明确的 Agent。
+- 静态安全分析
+  提取权限、组件导出情况、基础元数据，并结合源码或反编译结果进行规则扫描。
+- 规则 + LLM 双层机制
+  先用确定性的规则发现候选问题，再用可选 LLM 做结果归纳、降噪和修复建议生成。
+- 多格式报告输出
+  默认生成 `Markdown`、`HTML`、`JSON` 三种报告。
+- 适合继续扩展
+  当前结构已经具备继续拆分为更细粒度安全 Agent 的基础。
 
-- 🤖 **多Agent协作** - 7个专业Agent分工协作：解包、反编译、分析、扫描、报告
-- 🔍 **静态分析** - 权限分析、组件分析、敏感API检测、网络通信分析
-- 🛡️ **漏洞扫描** - 内置10+条漏洞检测规则，覆盖常见Android安全风险
-- 🦠 **恶意软件检测** - 8类恶意软件特征检测
-- 🔑 **敏感数据检测** - 硬编码密码、API密钥、私钥等敏感信息扫描
-- 📊 **多格式报告** - 支持Markdown、HTML、JSON格式输出
+## 当前 Agent 流程
 
-## 🏗️ 系统架构
+项目当前采用编排式多 Agent 流程：
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Orchestrator Agent                        │
-│                      (总调度Agent)                           │
-└─────────────────────────────────────────────────────────────┘
-           │            │            │            │
-    ┌──────┴──────┐ ┌───┴────┐ ┌────┴────┐ ┌───┴──────┐
-    │ Extractor   │ │Analyzer│ │ Scanner │ │ Reporter │
-    │ (解包)      │ │ (分析) │ │ (扫描)  │ │ (报告)   │
-    └─────────────┘ └────────┘ └─────────┘ └──────────┘
-```
+1. `ExtractorAgent`
+   负责 APK 解包、Manifest/资源/签名信息提取。
+2. `DecompilerAgent`
+   负责调用反编译工具，产出 Java/Smali 等分析材料。
+3. `AnalyzerAgent`
+   负责提取 APK 基本信息、权限、组件暴露面等结构化数据。
+4. `ScannerAgent`
+   负责漏洞规则扫描、敏感数据检测、恶意软件指标检测，并可接入 LLM 进行结果复核。
+5. `ReporterAgent`
+   负责汇总所有 Agent 结果，并在启用 LLM 时生成总结、重点问题、修复建议与残余风险。
+6. `FormatterAgent`
+   负责将最终结果格式化为 `Markdown / HTML / JSON`。
+7. `OrchestratorAgent`
+   负责调度整个分析工作流。
 
-## 📁 项目结构
+## 项目结构
 
-```
+```text
 APKAgents/
-├── agents/                    # Agent实现
-│   ├── orchestrator.py       # 总调度Agent
-│   ├── extractor.py          # 解包Agent
-│   ├── decompiler.py         # 反编译Agent
-│   ├── analyzer.py           # 分析Agent
-│   ├── scanner.py            # 扫描Agent
-│   ├── reporter.py           # 报告Agent
-│   └── formatter.py          # 格式化Agent
-├── tools/                     # 工具封装
-│   ├── apktool_wrapper.py
-│   ├── jadx_wrapper.py
-│   └── androguard_wrapper.py
-├── rules/                     # 扫描规则
-│   ├── vulnerability_rules.json
-│   ├── malware_indicators.json
-│   └── sensitive_data_patterns.json
-├── config/                    # 配置文件
-├── utils/                     # 工具函数
-├── templates/                 # 报告模板
-├── main.py                    # 入口文件
-└── requirements.txt           # 依赖
+├─ agents/        # 多 Agent 核心实现
+├─ config/        # 配置文件
+├─ rules/         # 扫描规则
+├─ templates/     # 模板与说明
+├─ tools/         # 外部工具封装
+├─ utils/         # 通用工具与 LLM Client
+├─ main.py        # 命令行入口
+└─ requirements.txt
 ```
 
-## 🚀 快速开始
+## 环境要求
 
-### 1. 安装依赖
+- Python `3.10+`
+- Java 运行环境
+- 本地可用的 Android 分析工具，例如：
+  - `apktool`
+  - `jadx`
+  - `aapt`
+  - `apksigner`
+
+## 安装
 
 ```bash
-# 克隆项目
 git clone https://github.com/yourusername/APKAgents.git
 cd APKAgents
-
-# 安装Python依赖
 pip install -r requirements.txt
 ```
 
-### 2. 安装系统工具
+## 快速开始
 
-| 工具 | 要求 | 说明 |
-|------|------|------|
-| Java | JDK 17+ | apktool和jadx需要 |
-| apktool | 2.9+ | APK解包 |
-| jadx | 1.4+ | DEX反编译 |
-| aapt | - | APK信息提取 |
-| apksigner | - | 签名验证 |
-
-下载后添加到系统PATH，或在 `config/tools.yaml` 中配置路径。
-
-### 3. 运行分析
+基础用法：
 
 ```bash
-# 基本用法
-python main.py your_app.apk
-
-# 指定输出目录
-python main.py your_app.apk -o output
-
-# 跳过反编译（更快）
-python main.py your_app.apk --no-decompile
-
-# 详细输出
-python main.py your_app.apk -v
+python main.py sample.apk
 ```
 
-## 📖 使用示例
-
-```python
-from agents import OrchestratorAgent, AgentContext
-
-# 创建上下文
-context = AgentContext(
-    apk_path="app.apk",
-    output_dir="output",
-    config={}
-)
-
-# 执行分析
-agent = OrchestratorAgent()
-result = agent.execute(context)
-
-# 获取报告
-print(result.data["markdown_report"])
-```
-
-## ⚙️ 配置
-
-编辑 `config/default.yaml` 自定义分析行为：
-
-```yaml
-analysis:
-  parallel: true
-  max_workers: 4
-  timeout: 300
-
-agents:
-  enabled:
-    extractor: true
-    decompiler: true
-    analyzer: true
-    scanner: true
-    reporter: true
-    formatter: true
-```
-
-## 📊 检测规则
-
-### 漏洞规则 (10条)
-
-- VULN-001: 不安全的WebView配置
-- VULN-002: 不安全的Intent广播
-- VULN-003: 不安全的随机数生成
-- VULN-004: 不安全的信任管理器
-- VULN-005: 调试标志启用
-- VULN-006: WebView远程代码执行
-- VULN-007: 不安全的文件权限
-- VULN-008: 日志泄露敏感信息
-- VULN-009: 动态加载代码
-- VULN-010: SQL注入
-
-### 恶意软件特征 (8类)
-
-- MAL-001: 短信窃取器
-- MAL-002: 间谍软件
-- MAL-003: 电话扣费
-- MAL-004: 银行木马
-- MAL-005: Root提权
-- MAL-006: 远程控制
-- MAL-007: 勒索软件
-- MAL-008: 广告软件
-
-### 敏感数据模式 (12种)
-
-- API密钥、AWS密钥、私钥
-- 硬编码密码、JWT Token
-- 数据库连接字符串
-- 信用卡号、IP地址等
-
-## 🔧 开发
+指定输出目录：
 
 ```bash
-# 运行测试
-python -m pytest tests/
-
-# 代码格式化
-black agents/ tools/ utils/
-
-# 类型检查
-mypy agents/ --ignore-missing-imports
+python main.py sample.apk -o output
 ```
 
-## 📝 输出示例
+启用详细日志：
 
-分析完成后，会在输出目录生成：
-
+```bash
+python main.py sample.apk -v
 ```
+
+## 配置说明
+
+默认配置文件：
+
+- [config/default.yaml](config/default.yaml)
+
+本地运行配置示例：
+
+- [config/local-run.example.yaml](config/local-run.example.yaml)
+
+建议做法是：
+
+1. 复制 `config/local-run.example.yaml`
+2. 填入你自己的本地工具路径
+3. 按需填写 LLM 网关地址、模型名和 API Key
+4. 本地使用，不要提交到仓库
+
+## LLM 支持
+
+项目可以在 **不启用 LLM** 的情况下运行。  
+启用后，LLM 主要用于：
+
+- 结果归纳
+- 误报压缩
+- 风险总结
+- 修复建议生成
+
+当前实现使用兼容 Anthropic `messages` 接口风格的客户端。如果你的网关支持这一协议，可以直接接入。
+
+## 输出结果
+
+一次分析通常会生成：
+
+```text
 output/
-├── report.md      # Markdown报告
-├── report.html    # HTML报告
-└── report.json    # JSON报告
+├─ report.md
+├─ report.html
+└─ report.json
 ```
 
-## 🤝 贡献
+其中：
 
-欢迎提交Issue和Pull Request！
+- `report.md` 适合阅读和提交审计记录
+- `report.html` 适合直接浏览
+- `report.json` 适合机器处理或后续平台集成
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/xxx`)
-3. 提交更改 (`git commit -m 'Add xxx'`)
-4. 推送分支 (`git push origin feature/xxx`)
-5. 创建Pull Request
+## 当前阶段说明
 
-## 📄 许可证
+这个项目现在更接近：
 
-MIT License - 查看 [LICENSE](LICENSE) 文件
+`工具链分析 + 规则扫描 + LLM 二次总结`
 
-## 🙏 致谢
+它已经具备多 Agent 的结构，但目前仍偏向“流水线式分工”。  
+如果后续继续扩展，可以进一步拆分为更强的安全角色，例如：
 
-- [apktool](https://github.com/iBotPeaches/Apktool) - APK解包
-- [jadx](https://github.com/skylot/jadx) - DEX反编译
-- [Androguard](https://github.com/androguard/androguard) - 静态分析
-- [LangChain](https://github.com/langchain-ai/langchain) - LLM框架
-- [CrewAI](https://github.com/crewAIInc/crewAI) - 多Agent框架
+- 攻击面 Agent
+- 隐私风险 Agent
+- 代码风险 Agent
+- 误报复核 Agent
+- 审计汇总 Agent
+
+## 开发建议
+
+提交到 GitHub 前，建议不要包含：
+
+- 本地输出目录
+- `__pycache__`
+- JVM 崩溃日志
+- 真实 API Key
+- 个人机器绝对路径
+- 本地专用配置文件
+
+本仓库已通过 `.gitignore` 处理这些常见内容。
+
+## License
+
+MIT，详见 [LICENSE](LICENSE)。

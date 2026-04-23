@@ -1,0 +1,52 @@
+api:
+  enabled: true
+  provider: "anthropic"
+  model: "claude-opus-4-7"
+  model_fallbacks:
+    - "claude-sonnet-4-6"
+  base_url: "https://your-llm-gateway.example.com"
+  api_key: "YOUR_API_KEY"
+  max_tokens: 3000
+  temperature: 0.2
+  timeout: 90
+
+agents:
+  stop_on_error: true
+  enabled:
+    extractor: true
+    decompiler: true
+    analyzer: true
+    scanner: true
+    reporter: true
+    formatter: true
+
+  extractor:
+    apktool_path: "/path/to/apktool.jar"
+    aapt_path: "/path/to/aapt"
+    apksigner_path: "/path/to/apksigner"
+
+  decompiler:
+    jadx_path: "/path/to/jadx"
+    generate_jar: false
+    generate_smali: false
+
+  analyzer:
+    deep_analysis: true
+    check_permissions: true
+    check_components: true
+    check_network: true
+    check_crypto: true
+    check_storage: true
+    check_sensitive_apis: true
+
+  scanner:
+    rules_dir: "rules"
+    malware_check: true
+    sensitive_data_check: true
+    check_third_party_libs: false
+
+  reporter:
+    report_format: "markdown"
+
+  formatter:
+    template_dir: "templates"
