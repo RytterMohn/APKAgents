@@ -1,75 +1,136 @@
 # APKAgents
 
-一个面向 Android APK 的多 Agent 安全分析工具。  
-它把解包、反编译、静态规则扫描、恶意行为检测，以及可选的 LLM 复核与总结串成一条自动化分析流水线，输出适合阅读和二次处理的安全报告。
+![cover](assets/cover.png)
 
-## 项目特点
+<p align="center">
+  面向 Android APK 的多 Agent 安全分析工具。
+</p>
 
-- 多 Agent 协作
-  将 APK 分析过程拆分为解包、反编译、分析、扫描、报告、格式化等多个职责明确的 Agent。
-- 静态安全分析
-  提取权限、组件导出情况、基础元数据，并结合源码或反编译结果进行规则扫描。
-- 规则 + LLM 双层机制
-  先用确定性的规则发现候选问题，再用可选 LLM 做结果归纳、降噪和修复建议生成。
-- 多格式报告输出
-  默认生成 `Markdown`、`HTML`、`JSON` 三种报告。
-- 适合继续扩展
-  当前结构已经具备继续拆分为更细粒度安全 Agent 的基础。
+<p align="center">
+  负责解包、反编译、规则扫描、恶意特征检测、LLM 复核与审计报告生成。
+</p>
 
-## 当前 Agent 流程
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Platform-Android_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Platform">
+  <img src="https://img.shields.io/badge/Architecture-Multi--Agent-111827?style=for-the-badge" alt="Architecture">
+  <img src="https://img.shields.io/badge/Reports-HTML%20%7C%20Markdown%20%7C%20JSON-B45309?style=for-the-badge" alt="Reports">
+  <img src="https://img.shields.io/badge/License-MIT-16A34A?style=for-the-badge" alt="License">
+</p>
 
-项目当前采用编排式多 Agent 流程：
+<p align="center">
+  <img src="https://img.shields.io/github/stars/RytterMohn/APKAgents?style=flat-square" alt="GitHub stars">
+  <img src="https://img.shields.io/github/forks/RytterMohn/APKAgents?style=flat-square" alt="GitHub forks">
+  <img src="https://img.shields.io/github/issues/RytterMohn/APKAgents?style=flat-square" alt="GitHub issues">
+  <img src="https://img.shields.io/github/last-commit/RytterMohn/APKAgents?style=flat-square" alt="Last commit">
+</p>
 
-1. `ExtractorAgent`
-   负责 APK 解包、Manifest/资源/签名信息提取。
-2. `DecompilerAgent`
-   负责调用反编译工具，产出 Java/Smali 等分析材料。
-3. `AnalyzerAgent`
-   负责提取 APK 基本信息、权限、组件暴露面等结构化数据。
-4. `ScannerAgent`
-   负责漏洞规则扫描、敏感数据检测、恶意软件指标检测，并可接入 LLM 进行结果复核。
-5. `ReporterAgent`
-   负责汇总所有 Agent 结果，并在启用 LLM 时生成总结、重点问题、修复建议与残余风险。
-6. `FormatterAgent`
-   负责将最终结果格式化为 `Markdown / HTML / JSON`。
-7. `OrchestratorAgent`
-   负责调度整个分析工作流。
+
+## 项目截图
+
+![HTML 报告预览](assets/report-preview.png)
+
+## 项目简介
+
+`APKAgents` 是一个用于 Android APK 静态安全分析的实验性项目。  
+它把分析任务拆分给多个职责明确的 Agent，由调度器串联成一条完整流程：
+
+- APK 解包
+- Java / Smali 反编译
+- Manifest、权限、组件暴露面分析
+- 规则扫描与敏感数据检测
+- 恶意软件指标识别
+- LLM 结果复核与总结
+- Markdown / HTML / JSON 报告输出
+
+这不是一个只靠模板拼接结果的脚本，而是一个可以继续扩展成更强多 Agent 安全系统的基础框架。
+
+## 核心特点
+
+### 1. 多 Agent 流水线
+
+当前项目包含这些主要角色：
+
+- `ExtractorAgent`：负责 APK 解包、资源与签名信息提取。
+- `DecompilerAgent`：负责调用 `jadx`、`apktool` 等工具生成源码材料。
+- `AnalyzerAgent`：负责提取包信息、权限、组件、网络与加密相关元数据。
+- `ScannerAgent`：负责规则扫描、敏感数据检测、恶意软件指标检测，并支持 LLM 复核。
+- `ReporterAgent`：负责聚合分析结果，生成结构化结论和 LLM 摘要。
+- `FormatterAgent`：负责输出 Markdown、HTML、JSON 报告。
+- `OrchestratorAgent`：负责统一调度整条分析流程。
+
+### 2. 规则扫描 + LLM 复核
+
+项目采用双层分析思路：
+
+- 第一层由规则和外部工具链提供确定性的候选发现。
+- 第二层由 LLM 对结果做归纳、去噪、优先级排序和修复建议补充。
+
+这样既保留了规则分析的稳定性，也让最终报告更接近人工审计的阅读体验。
+
+### 3. 面向展示与集成的报告输出
+
+分析完成后会生成：
+
+- `report.html`
+- `report.md`
+- `report.json`
+
+其中：
+
+- `HTML` 适合直接展示和分享。
+- `Markdown` 适合审计记录和代码评审。
+- `JSON` 适合平台集成和自动化处理。
+
+## 工作流程
+
+```text
+APK
+  -> ExtractorAgent
+  -> DecompilerAgent
+  -> AnalyzerAgent
+  -> ScannerAgent
+  -> ReporterAgent
+  -> FormatterAgent
+  -> HTML / Markdown / JSON Report
+```
 
 ## 项目结构
 
 ```text
 APKAgents/
-├─ agents/        # 多 Agent 核心实现
-├─ config/        # 配置文件
-├─ rules/         # 扫描规则
-├─ templates/     # 模板与说明
-├─ tools/         # 外部工具封装
-├─ utils/         # 通用工具与 LLM Client
-├─ main.py        # 命令行入口
-└─ requirements.txt
+|-- agents/         # Agent 核心实现
+|-- config/         # 配置文件
+|-- rules/          # 规则定义
+|-- templates/      # 模板与提示词
+|-- tools/          # 外部工具封装
+|-- utils/          # 通用工具与 LLM Client
+|-- assets/         # README/文档资源
+|-- main.py         # 命令行入口
+`-- requirements.txt
 ```
 
-## 环境要求
+## 环境依赖
 
 - Python `3.10+`
 - Java 运行环境
-- 本地可用的 Android 分析工具，例如：
-  - `apktool`
-  - `jadx`
-  - `aapt`
-  - `apksigner`
+- Android 相关工具：
+- `apktool`
+- `jadx`
+- `aapt`
+- `apksigner`
 
 ## 安装
 
 ```bash
-git clone https://github.com/yourusername/APKAgents.git
+git clone https://github.com/RytterMohn/APKAgents.git
 cd APKAgents
 pip install -r requirements.txt
 ```
 
 ## 快速开始
 
-基础用法：
+基础分析：
 
 ```bash
 python main.py sample.apk
@@ -97,60 +158,62 @@ python main.py sample.apk -v
 
 - [config/local-run.example.yaml](config/local-run.example.yaml)
 
-建议做法是：
+建议做法：
 
-1. 复制 `config/local-run.example.yaml`
-2. 填入你自己的本地工具路径
-3. 按需填写 LLM 网关地址、模型名和 API Key
-4. 本地使用，不要提交到仓库
+1. 复制一份 `config/local-run.example.yaml`。
+2. 填入你自己的工具路径与网关配置。
+3. 将真实 API Key 放在环境变量或本地私有配置中。
+4. 不要把本地专用配置提交到仓库。
 
 ## LLM 支持
 
-项目可以在 **不启用 LLM** 的情况下运行。  
+项目可以在不启用 LLM 的情况下运行。  
 启用后，LLM 主要用于：
 
 - 结果归纳
-- 误报压缩
-- 风险总结
+- 重点问题提炼
+- 风险摘要
 - 修复建议生成
+- 残余风险说明
 
-当前实现使用兼容 Anthropic `messages` 接口风格的客户端。如果你的网关支持这一协议，可以直接接入。
+当前实现默认兼容 Anthropic `messages` 风格接口；如果你的网关提供兼容协议，可以直接接入。
 
-## 输出结果
+## 输出内容
 
-一次分析通常会生成：
+一轮分析通常会生成：
 
 ```text
 output/
-├─ report.md
-├─ report.html
-└─ report.json
+|-- report.html
+|-- report.md
+`-- report.json
 ```
 
-其中：
+最新 HTML 报告已经包含这些模块：
 
-- `report.md` 适合阅读和提交审计记录
-- `report.html` 适合直接浏览
-- `report.json` 适合机器处理或后续平台集成
+- 总览信息
+- 风险评分与统计卡片
+- LLM 总结
+- 规则扫描结果
+- 恶意软件指标
+- 敏感数据结果
+- 权限信息
+- 组件暴露面
+- 网络通信
+- 加密相关
 
-## 当前阶段说明
+## 当前定位
 
-这个项目现在更接近：
+当前版本更接近：
 
 `工具链分析 + 规则扫描 + LLM 二次总结`
 
-它已经具备多 Agent 的结构，但目前仍偏向“流水线式分工”。  
-如果后续继续扩展，可以进一步拆分为更强的安全角色，例如：
+也就是说，它已经具备多 Agent 的基本骨架，但目前仍然偏向“流水线式分工”。  
+如果继续演进，可以进一步拆分成更强的安全角色，例如攻击面分析、隐私风险分析、代码风险分析和误报复核等专门 Agent。
 
-- 攻击面 Agent
-- 隐私风险 Agent
-- 代码风险 Agent
-- 误报复核 Agent
-- 审计汇总 Agent
+## 开源注意事项
 
-## 开发建议
-
-提交到 GitHub 前，建议不要包含：
+提交到 GitHub 前，建议确保仓库中不包含：
 
 - 本地输出目录
 - `__pycache__`
@@ -158,8 +221,6 @@ output/
 - 真实 API Key
 - 个人机器绝对路径
 - 本地专用配置文件
-
-本仓库已通过 `.gitignore` 处理这些常见内容。
 
 ## License
 

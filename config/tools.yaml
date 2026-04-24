@@ -1,35 +1,28 @@
-# 工具基础目录
-base_dir: "D:/tools"
+base_dir: "<YOUR_TOOL_DIR>"
 
 tools:
-  # apktool 配置
   apktool:
-    path: "D:/tools/apktool.bat"
+    path: "<YOUR_TOOL_DIR>/apktool.bat"
     version_command: "apktool version"
     version: ""
 
-  # jadx 配置
   jadx:
-    path: "D:/tools/jadx/bin/jadx.bat"
-    conf: "D:/tools/jadx/conf/jadx.conf"
+    path: "<YOUR_TOOL_DIR>/jadx/bin/jadx.bat"
+    conf: "<YOUR_TOOL_DIR>/jadx/conf/jadx.conf"
     version: ""
 
-  # dex2jar 配置
   dex2jar:
-    path: "D:/tools/dex2jar/d2j-dex2jar.bat"
+    path: "<YOUR_TOOL_DIR>/dex2jar/d2j-dex2jar.bat"
     version: ""
 
-  # aapt 配置 (Android Asset Packaging Tool)
   aapt:
-    path: "D:/tools/android-sdk/build-tools/33.0.0/aapt.exe"
+    path: "<YOUR_ANDROID_SDK>/build-tools/<VERSION>/aapt.exe"
     version: ""
 
-  # apksigner 配置
   apksigner:
-    path: "D:/tools/android-sdk/build-tools/33.0.0/apksigner.bat"
+    path: "<YOUR_ANDROID_SDK>/build-tools/<VERSION>/apksigner.bat"
     version: ""
 
-# Python包
 python_tools:
   androguard:
     package: "androguard"

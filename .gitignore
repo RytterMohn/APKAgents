@@ -10,6 +10,7 @@ hs_err_pid*.log
 .env.*
 
 config/local-run.yaml
+.claude/
 
 .DS_Store
 Thumbs.db
